@@ -1,200 +1,223 @@
-#include <Servo.h>
 #include <SoftwareSerial.h>
 
-// ================= COMMUNICATION =================
+// Arduino 1 -> Arduino 2
+// D2 = TX
 SoftwareSerial displaySerial(3, 2);
-// D3 = RX
-// D2 = TX → Arduino 2 D0
 
+// =========================
+// SENSOR PINS
+// =========================
+const int moisture1Pin = A0;
+const int moisture2Pin = A1;
+const int tempPin      = A2;
+const int rainPin      = A3;
+const int lightPin     = A4;
 
-// ================= SENSORS =================
-const int moisture1 = A0;
-const int moisture2 = A1;
-const int temperatureSensor = A2;
-const int rainSensor = A3;
-const int lightSensor = A4;
-
-
-// ================= OUTPUTS =================
-const int pump1 = 8;
-const int pump2 = 9;
-const int fan = 10;
-const int growLight = 12;
-
-const int greenLED = 6;
-const int redLED = 7;
-
-const int mainMotor = 13;
-
-
-// ================= ULTRASONIC =================
+// =========================
+// ULTRASONIC
+// =========================
 const int trigPin = 4;
 const int echoPin = 5;
 
+// =========================
+// OUTPUT PINS
+// =========================
+const int greenLED = 6;
+const int redLED   = 7;
 
-// ================= SERVO =================
-Servo roofServo;
+const int pump1Relay = 8;
+const int pump2Relay = 9;
+const int fanRelay   = 10;
 
-const int roofPin = 11;
+const int growLightRelay = 12;
+const int mainMotorRelay = 13;
 
-const int roofOpen = 0;
-const int roofClosed = 90;
-
-
-// ================= LIMITS =================
+// =========================
+// THRESHOLDS
+// =========================
 const int moistureLimit = 400;
-const int rainLimit = 400;
+const int tempLimit = 30;
+const int rainLimit = 600;
 const int lightLimit = 400;
 
-const float temperatureLimit = 30.0;
+// Tank levels
+const int tankFullDistance = 5;
+const int tankLowDistance  = 18;
 
-const float waterLowLimit = 18.0;
-const float waterFullLimit = 5.0;
-
-
-// Tank filling memory
 bool fillingTank = false;
 
-
+// =========================
+// SETUP
+// =========================
 void setup() {
 
   Serial.begin(9600);
-
   displaySerial.begin(9600);
-
-
-  // Outputs
-
-  pinMode(pump1, OUTPUT);
-  pinMode(pump2, OUTPUT);
-  pinMode(fan, OUTPUT);
-  pinMode(growLight, OUTPUT);
-
-  pinMode(greenLED, OUTPUT);
-  pinMode(redLED, OUTPUT);
-
-  pinMode(mainMotor, OUTPUT);
-
-
-  // Ultrasonic
 
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
 
+  pinMode(greenLED, OUTPUT);
+  pinMode(redLED, OUTPUT);
 
-  // Servo
+  pinMode(pump1Relay, OUTPUT);
+  pinMode(pump2Relay, OUTPUT);
+  pinMode(fanRelay, OUTPUT);
 
-  roofServo.attach(roofPin);
+  pinMode(growLightRelay, OUTPUT);
+  pinMode(mainMotorRelay, OUTPUT);
 
-  roofServo.write(roofOpen);
+  // Start everything OFF
+  digitalWrite(pump1Relay, LOW);
+  digitalWrite(pump2Relay, LOW);
+  digitalWrite(fanRelay, LOW);
+  digitalWrite(growLightRelay, LOW);
+  digitalWrite(mainMotorRelay, LOW);
 
-
-  // Initial OFF
-
-  digitalWrite(pump1, LOW);
-  digitalWrite(pump2, LOW);
-
-  digitalWrite(fan, LOW);
-
-  digitalWrite(growLight, LOW);
-
-  digitalWrite(mainMotor, LOW);
-
-  digitalWrite(greenLED, LOW);
-  digitalWrite(redLED, LOW);
-
-
-  Serial.println("GREENHOUSE STARTED");
+  Serial.println("MAIN GREENHOUSE SYSTEM READY");
 }
 
-
-void loop() {
-
-  // =================================================
-  // MOISTURE 1
-  // =================================================
-
-  int m1 = analogRead(moisture1);
-
-  bool p1 = false;
-
-  if (m1 < moistureLimit) {
-
-    digitalWrite(pump1, HIGH);
-
-    p1 = true;
-
-  } else {
-
-    digitalWrite(pump1, LOW);
-
-    p1 = false;
-  }
-
-
-  // =================================================
-  // MOISTURE 2
-  // =================================================
-
-  int m2 = analogRead(moisture2);
-
-  bool p2 = false;
-
-  if (m2 < moistureLimit) {
-
-    digitalWrite(pump2, HIGH);
-
-    p2 = true;
-
-  } else {
-
-    digitalWrite(pump2, LOW);
-
-    p2 = false;
-  }
-
-
-  // =================================================
-  // WATER TANK ULTRASONIC
-  // =================================================
+// =========================
+// ULTRASONIC FUNCTION
+// =========================
+long getDistance() {
 
   digitalWrite(trigPin, LOW);
-
   delayMicroseconds(2);
 
   digitalWrite(trigPin, HIGH);
-
   delayMicroseconds(10);
-
   digitalWrite(trigPin, LOW);
 
+  long duration = pulseIn(echoPin, HIGH);
 
-  long duration = pulseIn(echoPin, HIGH, 30000);
+  long distance = duration * 0.034 / 2;
 
-  float distance;
+  return distance;
+}
+
+// =========================
+// TMP36 TEMPERATURE
+// =========================
+float getTemperature() {
+
+  int rawValue = analogRead(tempPin);
+
+  float voltage = rawValue * (5.0 / 1023.0);
+
+  float temperature = (voltage - 0.5) * 100.0;
+
+  return temperature;
+}
+
+// =========================
+// MAIN LOOP
+// =========================
+void loop() {
+
+  // -------------------------
+  // READ SENSORS
+  // -------------------------
+  int moisture1 = analogRead(moisture1Pin);
+  int moisture2 = analogRead(moisture2Pin);
+
+  float temperature = getTemperature();
+
+  int rainValue = analogRead(rainPin);
+
+  int lightValue = analogRead(lightPin);
+
+  long distance = getDistance();
 
 
-  if (duration == 0) {
+  // =========================
+  // MOISTURE / PUMP 1
+  // =========================
 
-    distance = 999;
+  bool pump1 = false;
+  bool pump2 = false;
 
-  } else {
-
-    distance = duration * 0.034 / 2;
+  if (moisture1 < moistureLimit) {
+    digitalWrite(pump1Relay, HIGH);
+    pump1 = true;
+  } 
+  else {
+    digitalWrite(pump1Relay, LOW);
+    pump1 = false;
   }
 
 
-  // Low water → start filling
+  // =========================
+  // MOISTURE / PUMP 2
+  // =========================
 
-  if (distance >= waterLowLimit) {
+  if (moisture2 < moistureLimit) {
+    digitalWrite(pump2Relay, HIGH);
+    pump2 = true;
+  } 
+  else {
+    digitalWrite(pump2Relay, LOW);
+    pump2 = false;
+  }
+
+
+  // =========================
+  // TEMPERATURE / FAN
+  // =========================
+
+  bool fan = false;
+
+  if (temperature > tempLimit) {
+
+    digitalWrite(fanRelay, HIGH);
+    fan = true;
+
+  } 
+  else {
+
+    digitalWrite(fanRelay, LOW);
+    fan = false;
+  }
+
+
+  // =========================
+  // LIGHT
+  // =========================
+
+  bool lowLight = false;
+
+  if (lightValue < lightLimit) {
+
+    digitalWrite(greenLED, HIGH);
+    digitalWrite(redLED, LOW);
+
+    digitalWrite(growLightRelay, HIGH);
+
+    lowLight = true;
+
+  } 
+  else {
+
+    digitalWrite(greenLED, LOW);
+    digitalWrite(redLED, HIGH);
+
+    digitalWrite(growLightRelay, LOW);
+
+    lowLight = false;
+  }
+
+
+  // =========================
+  // WATER TANK
+  // =========================
+
+  if (distance >= tankLowDistance) {
 
     fillingTank = true;
+
   }
 
-
-  // Full water → stop filling
-
-  if (distance <= waterFullLimit) {
+  if (distance <= tankFullDistance) {
 
     fillingTank = false;
   }
@@ -202,149 +225,80 @@ void loop() {
 
   if (fillingTank) {
 
-    digitalWrite(mainMotor, HIGH);
+    digitalWrite(mainMotorRelay, HIGH);
 
-  } else {
+  } 
+  else {
 
-    digitalWrite(mainMotor, LOW);
+    digitalWrite(mainMotorRelay, LOW);
   }
 
 
-  // =================================================
-  // RAIN
-  // =================================================
-
-  int rainValue = analogRead(rainSensor);
-
-  bool rain = false;
-
-
-  if (rainValue < rainLimit) {
-
-    roofServo.write(roofClosed);
-
-    rain = true;
-
-  } else {
-
-    roofServo.write(roofOpen);
-
-    rain = false;
-  }
-
-
-  // =================================================
-  // TEMPERATURE
-  // =================================================
-
-  int tempRaw = analogRead(temperatureSensor);
-
-  float voltage = tempRaw * (5.0 / 1023.0);
-
-  float temperature = (voltage - 0.5) * 100.0;
-
-
-  bool fanOn = false;
-
-
-  if (temperature > temperatureLimit) {
-
-    digitalWrite(fan, HIGH);
-
-    fanOn = true;
-
-  } else {
-
-    digitalWrite(fan, LOW);
-
-    fanOn = false;
-  }
-
-
-  // =================================================
-  // LIGHT
-  // =================================================
-
-  int lightValue = analogRead(lightSensor);
-
-  bool lowLight = false;
-
-
-  if (lightValue < lightLimit) {
-
-    digitalWrite(greenLED, HIGH);
-
-    digitalWrite(redLED, LOW);
-
-    digitalWrite(growLight, HIGH);
-
-    lowLight = true;
-
-  } else {
-
-    digitalWrite(greenLED, LOW);
-
-    digitalWrite(redLED, HIGH);
-
-    digitalWrite(growLight, LOW);
-
-    lowLight = false;
-  }
-
-
-  // =================================================
+  // =========================
   // SEND DATA TO ARDUINO 2
-  // =================================================
+  // =========================
+  //
+  // m1,m2,temp,rain,lowLight,
+  // distance,fillingTank,pump1,
+  // pump2,fan
+  //
+  // Arduino 2 will also use
+  // rain value for roof control.
+  // =========================
 
-  displaySerial.print(m1);
+  displaySerial.print(moisture1);
   displaySerial.print(",");
 
-  displaySerial.print(m2);
+  displaySerial.print(moisture2);
   displaySerial.print(",");
 
-  displaySerial.print(temperature, 1);
+  displaySerial.print(temperature);
   displaySerial.print(",");
 
-  displaySerial.print(rain);
+  displaySerial.print(rainValue);
   displaySerial.print(",");
 
   displaySerial.print(lowLight);
   displaySerial.print(",");
 
-  displaySerial.print(distance, 1);
+  displaySerial.print(distance);
   displaySerial.print(",");
 
   displaySerial.print(fillingTank);
   displaySerial.print(",");
 
-  displaySerial.print(p1);
+  displaySerial.print(pump1);
   displaySerial.print(",");
 
-  displaySerial.print(p2);
+  displaySerial.print(pump2);
   displaySerial.print(",");
 
-  displaySerial.print(fanOn);
-
-  displaySerial.println();
+  displaySerial.println(fan);
 
 
-  // Debug only on Arduino 1
+  // =========================
+  // SERIAL MONITOR
+  // =========================
 
   Serial.print("M1:");
-  Serial.print(m1);
+  Serial.print(moisture1);
 
-  Serial.print(" M2:");
-  Serial.print(m2);
+  Serial.print(" | M2:");
+  Serial.print(moisture2);
 
-  Serial.print(" TEMP:");
+  Serial.print(" | Temp:");
   Serial.print(temperature);
 
-  Serial.print(" TANK:");
+  Serial.print(" | Rain:");
+  Serial.print(rainValue);
+
+  Serial.print(" | Light:");
+  Serial.print(lightValue);
+
+  Serial.print(" | Tank:");
   Serial.print(distance);
 
-  Serial.print(" MAIN:");
-
-  Serial.println(fillingTank ? "ON" : "OFF");
+  Serial.println(" cm");
 
 
   delay(500);
