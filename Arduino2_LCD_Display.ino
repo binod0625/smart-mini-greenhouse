@@ -1,68 +1,88 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
-
-
-// ================= LCD =================
+#include <Servo.h>
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
+Servo roofServo;
 
-// ================= DATA =================
+// =========================
+// ROOF PINS
+// =========================
 
-int m1 = 0;
-int m2 = 0;
+const int openButton  = 4;
+const int closeButton = 5;
 
-float temperature = 0;
+const int servoPin = 11;
 
-bool rain = false;
-bool lowLight = false;
+// =========================
+// SERVO ANGLES
+// =========================
 
-float tankDistance = 0;
+const int roofOpen = 0;
+const int roofClosed = 90;
 
-bool fillingTank = false;
+// =========================
+// RAIN THRESHOLD
+// =========================
 
-bool pump1 = false;
-bool pump2 = false;
-
-bool fan = false;
-
-
-// ================= SERIAL BUFFER =================
-
-String data = "";
+const int rainLimit = 600;
 
 
-// ================= LCD SCREEN =================
+// =========================
+// VARIABLES
+// =========================
 
-unsigned long previousDisplay = 0;
+int moisture1;
+int moisture2;
+
+float temperature;
+
+int rainValue;
+
+bool lowLight;
+
+long distance;
+
+bool fillingTank;
+
+bool pump1;
+bool pump2;
+bool fan;
+
+bool roofIsClosed = true;
 
 int screen = 0;
 
+unsigned long previousScreenTime = 0;
 
-// ================= SETUP =================
+
+// =========================
+// SETUP
+// =========================
 
 void setup() {
 
-  // Arduino 1 D2 → Arduino 2 D0
-
   Serial.begin(9600);
 
-
-  // LCD
-
   lcd.init();
-
   lcd.backlight();
+
+  roofServo.attach(servoPin);
+
+  pinMode(openButton, INPUT_PULLUP);
+  pinMode(closeButton, INPUT_PULLUP);
+
+  // Start roof CLOSED
+  roofServo.write(roofClosed);
 
   lcd.clear();
 
-
   lcd.setCursor(0, 0);
-  lcd.print("MINI GREENHOUSE");
+  lcd.print("SMART GREENHOUSE");
 
   lcd.setCursor(0, 1);
   lcd.print("SYSTEM READY");
-
 
   delay(2000);
 
@@ -70,276 +90,208 @@ void setup() {
 }
 
 
-// ================= LOOP =================
+// =========================
+// READ DATA FROM ARDUINO 1
+// =========================
 
-void loop() {
+void readData() {
 
+  if (Serial.available()) {
 
-  // =================================================
-  // RECEIVE DATA FROM ARDUINO 1
-  // =================================================
+    String data = Serial.readStringUntil('\n');
 
-  while (Serial.available() > 0) {
+    int index = 0;
 
-    char c = Serial.read();
+    moisture1 = data.substring(0, data.indexOf(',')).toInt();
+    data.remove(0, data.indexOf(',') + 1);
 
+    moisture2 = data.substring(0, data.indexOf(',')).toInt();
+    data.remove(0, data.indexOf(',') + 1);
 
-    if (c == '\n') {
+    temperature = data.substring(0, data.indexOf(',')).toFloat();
+    data.remove(0, data.indexOf(',') + 1);
 
-      if (data.length() > 0) {
+    rainValue = data.substring(0, data.indexOf(',')).toInt();
+    data.remove(0, data.indexOf(',') + 1);
 
-        parseData(data);
+    lowLight = data.substring(0, data.indexOf(',')).toInt();
+    data.remove(0, data.indexOf(',') + 1);
 
-        data = "";
-      }
+    distance = data.substring(0, data.indexOf(',')).toInt();
+    data.remove(0, data.indexOf(',') + 1);
 
-    }
+    fillingTank = data.substring(0, data.indexOf(',')).toInt();
+    data.remove(0, data.indexOf(',') + 1);
 
-    else if (c != '\r') {
+    pump1 = data.substring(0, data.indexOf(',')).toInt();
+    data.remove(0, data.indexOf(',') + 1);
 
-      data += c;
-    }
+    pump2 = data.substring(0, data.indexOf(',')).toInt();
+    data.remove(0, data.indexOf(',') + 1);
 
-
-    // Prevent buffer overflow
-
-    if (data.length() > 100) {
-
-      data = "";
-    }
-  }
-
-
-  // =================================================
-  // CHANGE LCD SCREEN
-  // =================================================
-
-  if (millis() - previousDisplay >= 2000) {
-
-    previousDisplay = millis();
-
-
-    lcd.clear();
-
-
-    // =================================================
-    // SCREEN 0 — MOISTURE
-    // =================================================
-
-    if (screen == 0) {
-
-      lcd.setCursor(0, 0);
-
-      lcd.print("M1:");
-
-      if (m1 < 400)
-        lcd.print("LOW");
-      else
-        lcd.print("OK ");
-
-
-      lcd.print(" P1:");
-
-      if (pump1)
-        lcd.print("ON");
-      else
-        lcd.print("OFF");
-
-
-      lcd.setCursor(0, 1);
-
-      lcd.print("M2:");
-
-      if (m2 < 400)
-        lcd.print("LOW");
-      else
-        lcd.print("OK ");
-
-
-      lcd.print(" P2:");
-
-      if (pump2)
-        lcd.print("ON");
-      else
-        lcd.print("OFF");
-    }
-
-
-    // =================================================
-    // SCREEN 1 — TEMPERATURE
-    // =================================================
-
-    else if (screen == 1) {
-
-      lcd.setCursor(0, 0);
-
-      lcd.print("TEMP:");
-
-      lcd.print(temperature, 1);
-
-      lcd.print("C");
-
-
-      lcd.setCursor(0, 1);
-
-      lcd.print("FAN:");
-
-      if (fan)
-        lcd.print("ON ");
-      else
-        lcd.print("OFF");
-    }
-
-
-    // =================================================
-    // SCREEN 2 — WATER TANK
-    // =================================================
-
-    else if (screen == 2) {
-
-      lcd.setCursor(0, 0);
-
-      lcd.print("TANK:");
-
-      if (fillingTank)
-        lcd.print("LOW/FILL");
-      else
-        lcd.print("FULL/OK");
-
-
-      lcd.setCursor(0, 1);
-
-      lcd.print("MAIN:");
-
-      if (fillingTank)
-        lcd.print("ON ");
-      else
-        lcd.print("OFF");
-    }
-
-
-    // =================================================
-    // SCREEN 3 — RAIN / ROOF
-    // =================================================
-
-    else if (screen == 3) {
-
-      lcd.setCursor(0, 0);
-
-      lcd.print("RAIN:");
-
-      if (rain)
-        lcd.print("YES");
-      else
-        lcd.print("NO ");
-
-
-      lcd.setCursor(0, 1);
-
-      lcd.print("ROOF:");
-
-      if (rain)
-        lcd.print("CLOSED");
-      else
-        lcd.print("OPEN");
-    }
-
-
-    // =================================================
-    // SCREEN 4 — LIGHT
-    // =================================================
-
-    else if (screen == 4) {
-
-      lcd.setCursor(0, 0);
-
-      lcd.print("LIGHT:");
-
-      if (lowLight)
-        lcd.print("LOW");
-      else
-        lcd.print("NORMAL");
-
-
-      lcd.setCursor(0, 1);
-
-      lcd.print("GROW:");
-
-      if (lowLight)
-        lcd.print("ON ");
-      else
-        lcd.print("OFF");
-    }
-
-
-    // Next screen
-
-    screen++;
-
-    if (screen > 4) {
-
-      screen = 0;
-    }
+    fan = data.toInt();
   }
 }
 
 
-// =================================================
-// PARSE DATA
-// =================================================
+// =========================
+// ROOF CONTROL
+// =========================
 
-void parseData(String data) {
+void roofControl() {
 
-  int values[10];
+  // -------------------------
+  // RAIN HAS HIGHEST PRIORITY
+  // -------------------------
 
-  int index = 0;
+  if (rainValue > rainLimit) {
 
-  int start = 0;
+    roofServo.write(roofClosed);
 
+    roofIsClosed = true;
 
-  for (int i = 0; i <= data.length(); i++) {
-
-    if (data.charAt(i) == ',' || i == data.length()) {
-
-      String part = data.substring(start, i);
-
-      values[index] = part.toInt();
-
-      index++;
-
-      start = i + 1;
-
-
-      if (index >= 10) {
-
-        break;
-      }
-    }
+    return;
   }
 
 
-  // Only accept complete data
+  // -------------------------
+  // MANUAL OPEN
+  // -------------------------
 
-  if (index == 10) {
+  if (digitalRead(openButton) == LOW) {
 
-    m1 = values[0];
+    roofServo.write(roofOpen);
 
-    m2 = values[1];
+    roofIsClosed = false;
 
-    temperature = values[2];
+    delay(300);
+  }
 
-    rain = values[3];
 
-    lowLight = values[4];
+  // -------------------------
+  // MANUAL CLOSE
+  // -------------------------
 
-    tankDistance = values[5];
+  if (digitalRead(closeButton) == LOW) {
 
-    fillingTank = values[6];
+    roofServo.write(roofClosed);
 
-    pump1 = values[7];
+    roofIsClosed = true;
 
-    pump2 = values[8];
+    delay(300);
+  }
+}
 
-    fan = values[9];
+
+// =========================
+// LCD SCREEN
+// =========================
+
+void showScreen() {
+
+  lcd.clear();
+
+
+  // SCREEN 1
+  if (screen == 0) {
+
+    lcd.setCursor(0, 0);
+    lcd.print("M1:");
+    lcd.print(moisture1);
+
+    lcd.setCursor(0, 1);
+    lcd.print("M2:");
+    lcd.print(moisture2);
+  }
+
+
+  // SCREEN 2
+  else if (screen == 1) {
+
+    lcd.setCursor(0, 0);
+    lcd.print("Temp:");
+    lcd.print(temperature, 1);
+    lcd.print(" C");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Fan:");
+    lcd.print(fan ? "ON" : "OFF");
+  }
+
+
+  // SCREEN 3
+  else if (screen == 2) {
+
+    lcd.setCursor(0, 0);
+    lcd.print("Tank:");
+    lcd.print(distance);
+    lcd.print("cm");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Motor:");
+    lcd.print(fillingTank ? "ON" : "OFF");
+  }
+
+
+  // SCREEN 4
+  else if (screen == 3) {
+
+    lcd.setCursor(0, 0);
+
+    if (rainValue > rainLimit) {
+      lcd.print("RAIN DETECTED");
+    }
+    else {
+      lcd.print("NO RAIN");
+    }
+
+    lcd.setCursor(0, 1);
+    lcd.print("Roof:");
+    lcd.print(roofIsClosed ? "CLOSED" : "OPEN");
+  }
+
+
+  // SCREEN 5
+  else if (screen == 4) {
+
+    lcd.setCursor(0, 0);
+
+    lcd.print("Light:");
+    lcd.print(lowLight ? "LOW" : "OK");
+
+    lcd.setCursor(0, 1);
+
+    lcd.print("Grow:");
+    lcd.print(lowLight ? "ON" : "OFF");
+  }
+}
+
+
+// =========================
+// MAIN LOOP
+// =========================
+
+void loop() {
+
+  // Receive data
+  readData();
+
+
+  // Control roof
+  roofControl();
+
+
+  // Change LCD screen
+  if (millis() - previousScreenTime >= 2000) {
+
+    previousScreenTime = millis();
+
+    showScreen();
+
+    screen++;
+
+    if (screen > 4) {
+      screen = 0;
+    }
   }
 }
